@@ -1,0 +1,275 @@
+### Variables globales
+@baseUrl = http://localhost:3000/api
+@sellerNumber = +212714460468
+@timestamp = 2025-03-02T22:56:40Z
+@currentUser = Sdiabate1337
+
+### 1. Inscription d'un nouveau vendeur
+# Début du parcours: création du compte vendeur
+POST {{baseUrl}}/sellers/register
+Content-Type: application/json
+
+{
+    "fullName": "{{currentUser}}",
+    "brandName": "Authentic Styles",
+    "whatsappNumber": "{{sellerNumber}}",
+    "city": "Abidjan",
+    "businessType": "FASHION"
+}
+
+### Stockage de la réponse (ID du vendeur)
+@sellerId = {{response.body.id}}
+
+### 2. Connexion du vendeur
+POST {{baseUrl}}/sellers/login
+Content-Type: application/json
+
+{
+    "fullName": "{{currentUser}}",
+    "whatsappNumber": "{{sellerNumber}}"
+}
+
+### Stockage du token d'authentification
+@authToken = {{response.headers.authorization}}
+
+### 3. Génération du QR Code pour connecter WhatsApp
+GET {{baseUrl}}/sellers/{{sellerId}}/connect/qr
+Authorization: Bearer {{authToken}}
+
+### Stockage du token de QR code (simulé)
+@qrToken = djula_{{sellerId}}_{{timestamp}}
+
+### 4. Vérification du token WhatsApp (simulation du scan QR)
+POST {{baseUrl}}/sellers/connect/verify
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+    "sellerId": "{{sellerId}}",
+    "token": "{{qrToken}}"
+}
+
+### 5. Ajout de produits au catalogue
+# Ajouter quelques produits pour générer des données
+POST {{baseUrl}}/products
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+    "name": "Chemise Premium",
+    "description": "Chemise en coton de qualité supérieure",
+    "price": 15000,
+    "stock": 25,
+    "categories": ["vêtements", "hommes"],
+    "images": ["https://example.com/images/chemise1.jpg"]
+}
+
+### Stockage du premier produit
+@product1Id = {{response.body.id}}
+
+### Ajout d'un second produit
+POST {{baseUrl}}/products
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+    "name": "Pantalon Jean Classic",
+    "description": "Jean durable et élégant",
+    "price": 22000,
+    "stock": 15,
+    "categories": ["vêtements", "hommes"],
+    "images": ["https://example.com/images/jean1.jpg"]
+}
+
+### Stockage du second produit
+@product2Id = {{response.body.id}}
+
+### Ajout d'un troisième produit (avec stock limité)
+POST {{baseUrl}}/products
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+    "name": "Robe de Soirée",
+    "description": "Robe élégante pour occasions spéciales",
+    "price": 35000,
+    "stock": 3,
+    "categories": ["vêtements", "femmes"],
+    "images": ["https://example.com/images/robe1.jpg"]
+}
+
+### Stockage du troisième produit
+@product3Id = {{response.body.id}}
+
+### 6. Simulation de commandes et paiements
+# Créer une commande pour générer des données
+POST {{baseUrl}}/orders
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+    "customer": {
+        "fullName": "Marie Koné",
+        "whatsappNumber": "+22507654321",
+        "shippingAddress": {
+            "city": "Abidjan",
+            "district": "Cocody",
+            "details": "Près de l'université"
+        }
+    },
+    "items": [
+        {
+            "productId": "{{product1Id}}",
+            "quantity": 2,
+            "price": 15000
+        },
+        {
+            "productId": "{{product3Id}}",
+            "quantity": 1,
+            "price": 35000
+        }
+    ],
+    "paymentMethod": "Orange Money",
+    "totalAmount": 65000
+}
+
+### Stockage de la première commande
+@order1Id = {{response.body.id}}
+
+### Marquer la commande comme payée
+PATCH {{baseUrl}}/orders/{{order1Id}}/payment
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+    "status": "PAID",
+    "transactionId": "OM_{{timestamp}}_1",
+    "paymentDetails": {
+        "method": "Orange Money",
+        "phoneNumber": "+22507654321",
+        "amount": 65000
+    }
+}
+
+### Créer une seconde commande
+POST {{baseUrl}}/orders
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+    "customer": {
+        "fullName": "Paul Diallo",
+        "whatsappNumber": "+22508765432",
+        "shippingAddress": {
+            "city": "Bouaké",
+            "district": "Centre",
+            "details": "Rue du marché"
+        }
+    },
+    "items": [
+        {
+            "productId": "{{product2Id}}",
+            "quantity": 1,
+            "price": 22000
+        }
+    ],
+    "paymentMethod": "Wave",
+    "totalAmount": 22000
+}
+
+### Stockage de la deuxième commande
+@order2Id = {{response.body.id}}
+
+### Marquer la seconde commande comme payée
+PATCH {{baseUrl}}/orders/{{order2Id}}/payment
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+    "status": "PAID",
+    "transactionId": "WAVE_{{timestamp}}_2",
+    "paymentDetails": {
+        "method": "Wave",
+        "phoneNumber": "+22508765432",
+        "amount": 22000
+    }
+}
+
+### 7. ACCÈS AU TABLEAU DE BORD
+### Récupérer le tableau de bord quotidien
+GET {{baseUrl}}/dashboard/{{sellerId}}?period=day&date={{timestamp}}
+Authorization: Bearer {{authToken}}
+
+### 8. EXPLORER LES DIFFÉRENTES SECTIONS DU TABLEAU DE BORD
+### Récupérer les insights régionaux
+GET {{baseUrl}}/dashboard/{{sellerId}}/regions?period=week
+Authorization: Bearer {{authToken}}
+
+### Récupérer les insights sur les méthodes de paiement
+GET {{baseUrl}}/dashboard/{{sellerId}}/payments?period=month
+Authorization: Bearer {{authToken}}
+
+### Récupérer les insights WhatsApp
+GET {{baseUrl}}/dashboard/{{sellerId}}/whatsapp
+Authorization: Bearer {{authToken}}
+
+### Récupérer l'état des stocks
+GET {{baseUrl}}/dashboard/{{sellerId}}/inventory
+Authorization: Bearer {{authToken}}
+
+### 9. MISE À JOUR DES PRÉFÉRENCES DU TABLEAU DE BORD
+POST {{baseUrl}}/dashboard/{{sellerId}}/preferences
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+    "favoriteMetrics": ["sales", "orders", "customers", "averageOrderValue"],
+    "hiddenSections": [],
+    "defaultDateRange": "week",
+    "notificationSettings": {
+        "email": true,
+        "whatsapp": true,
+        "inApp": true,
+        "salesAlerts": true,
+        "inventoryAlerts": true
+    }
+}
+
+### 10. MARQUER UNE NOTIFICATION COMME LUE
+# Supposons que nous avons une notification d'ID "notif123"
+PATCH {{baseUrl}}/dashboard/notifications/notif123/read
+Authorization: Bearer {{authToken}}
+
+### 11. MARQUER UNE ACTION RECOMMANDÉE COMME COMPLÉTÉE
+# Supposons que nous avons une action recommandée d'ID "action456"
+PATCH {{baseUrl}}/dashboard/actions/action456/complete
+Authorization: Bearer {{authToken}}
+
+### 12. RÉCUPÉRER LE TABLEAU DE BORD AVEC PROJECTION FUTURE
+# Visualiser les prévisions pour la semaine prochaine
+GET {{baseUrl}}/dashboard/{{sellerId}}/forecast?startDate={{timestamp}}&days=7
+Authorization: Bearer {{authToken}}
+
+### 13. GÉNÉRER UN RAPPORT PDF DU TABLEAU DE BORD
+POST {{baseUrl}}/dashboard/{{sellerId}}/export/pdf
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+    "period": "month",
+    "sections": ["keyMetrics", "regionalInsights", "inventory", "forecast"],
+    "format": "A4",
+    "language": "fr"
+}
+
+### 14. PARTAGER LE TABLEAU DE BORD (POUR COLLABORATION)
+POST {{baseUrl}}/dashboard/{{sellerId}}/share
+Content-Type: application/json
+Authorization: Bearer {{authToken}}
+
+{
+    "recipient": "+22509876543",
+    "expiresInHours": 24,
+    "permissions": ["view"],
+    "message": "Voici notre performance de vente pour ce mois"
+}
