@@ -1,7 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { OrderService } from '../order/order.service';
+import { OrderService, PaymentStatus } from '../order/order.service';
 import { Logger } from '../../utils/logger';
-import  {OrderStatus, PaymentStatus}  from '../../types/ai.types'; 
 
 export interface PaymentMethod {
   id: string;
@@ -197,10 +196,10 @@ export class PaymentService {
       if (error) throw error;
 
       // Update order payment status
-      await this.orderService.updatePaymentStatus(orderId,  PaymentStatus.PENDING);
+      await this.orderService.updatePaymentStatus(orderId, PaymentStatus.PENDING);
 
       return {
-        id: transaction.id,
+        id: transaction.id, 
         orderId: transaction.order_id,
         customerId: transaction.customer_id,
         amount: transaction.amount,
@@ -250,7 +249,7 @@ export class PaymentService {
       if (!transaction) {
         return {
           isVerified: false,
-          status:  PaymentStatus.PENDING,
+          status: PaymentStatus.PENDING,
           message: "Aucune transaction trouvée pour cette commande"
         };
       }
@@ -295,10 +294,10 @@ export class PaymentService {
         
         // Update the order status
         await this.orderService.updatePaymentStatus(orderId, PaymentStatus.COMPLETED);
-          
+        
         return {
           isVerified: true,
-          status: PaymentStatus.COMPLETED,  
+          status: PaymentStatus.COMPLETED,
           message: `Paiement ${transaction.method?.provider || ''} vérifié avec succès`
         };
       }
@@ -312,7 +311,7 @@ export class PaymentService {
       this.logger.error(`Erreur lors de la vérification du paiement pour ${orderId}:`, error);
       return {
         isVerified: false,
-        status: PaymentStatus.PENDING,  
+        status: PaymentStatus.PENDING,
         message: "Une erreur est survenue lors de la vérification"
       };
     }
