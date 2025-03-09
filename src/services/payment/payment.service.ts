@@ -643,4 +643,154 @@ export class PaymentService {
       }
     }
   }
+
+  /**
+   * Récupère toutes les méthodes de paiement (pour la compatibilité avec les routes)
+   */
+  async getPaymentMethods(): Promise<PaymentMethod[]> {
+    // Comme nous n'avons pas de customerId, utilisons la région par défaut
+    return this.getDefaultPaymentMethods('CI');
+  }
+
+  /**
+   * Initialise un paiement (pour la compatibilité avec les routes)
+   */
+  async initializePayment(data: {
+    orderId: string;
+    customerId: string;
+    paymentMethodId: string;
+  }): Promise<PaymentTransaction> {
+    // Récupérer la méthode de paiement à partir de son ID
+    const paymentMethods = await this.getAvailablePaymentMethods(data.customerId);
+    const selectedMethod = paymentMethods.find(method => method.id === data.paymentMethodId);
+    
+    if (!selectedMethod) {
+      throw new Error(`Méthode de paiement ${data.paymentMethodId} non trouvée`);
+    }
+    
+    // Utiliser la méthode existante avec la méthode de paiement complète
+    return this.initiatePayment(data.orderId, selectedMethod);
+  }
+
+  /**
+   * Vérifie un paiement mobile (pour la compatibilité avec les routes)
+   */
+  async verifyMobilePayment(
+    transactionId: string,
+    phoneNumber: string,
+    customerId: string
+  ): Promise<{
+    isVerified: boolean;
+    status: PaymentStatus;
+    message: string;
+  }> {
+    // Récupérer l'orderId à partir du transactionId
+    const { data, error } = await this.supabase
+      .from('payment_transactions')
+      .select('order_id')
+      .eq('id', transactionId)
+      .single();
+    
+    if (error || !data) {
+      throw new Error(`Transaction ${transactionId} introuvable`);
+    }
+    
+    // Utiliser la méthode existante
+    return this.verifyPayment(data.order_id, {
+      phoneNumber,
+      provider: 'MOBILE'  // Valeur générique, nous n'avons pas le provider spécifique
+    });
+  }
+
+  /**
+   * Gère les callbacks webhook des fournisseurs de paiement
+   */
+  async handlePaymentWebhook(
+    provider: string,
+    webhookData: any
+  ): Promise<boolean> {
+    try {
+      this.logger.info(`Webhook reçu de ${provider}:`, webhookData);
+      
+      // Récupérer la référence de la transaction dans les données du webhook
+      // Les formats varient selon les fournisseurs
+      let reference, orderId, status;
+      
+      switch (provider.toLowerCase()) {
+        case 'wave':
+          reference = webhookData.transaction_reference;
+          status = webhookData.status === 'successful' ? PaymentStatus.COMPLETED : PaymentStatus.FAILED;
+          break;
+          
+        case 'orange':
+          reference = webhookData.reference;
+          status = webhookData.status === 'SUCCESSFUL' ? PaymentStatus.COMPLETED : PaymentStatus.FAILED;
+          break;
+          
+        case 'mtn':
+          reference = webhookData.externalId;
+          status = webhookData.status === 'SUCCESSFUL' ? PaymentStatus.COMPLETED : PaymentStatus.FAILED;
+          break;
+          
+        default:
+          // Format générique
+          reference = webhookData.reference || webhookData.transaction_id;
+          status = (
+            webhookData.status === 'success' || 
+            webhookData.status === 'SUCCESSFUL' ||
+            webhookData.status === 'COMPLETED'
+          ) ? PaymentStatus.COMPLETED : PaymentStatus.FAILED;
+      }
+      
+      if (!reference) {
+        throw new Error('Référence de transaction non trouvée dans les données du webhook');
+      }
+      
+      // Trouver la transaction par sa référence
+      const { data: transaction } = await this.supabase
+        .from('payment_transactions')
+        .select('id, order_id, status')
+        .eq('reference', reference)
+        .single();
+      
+      if (!transaction) {
+        this.logger.warn(`Transaction avec référence ${reference} non trouvée`);
+        return false;
+      }
+      
+      orderId = transaction.order_id;
+      
+      // Éviter de traiter des transactions déjà complétées
+      if (transaction.status === PaymentStatus.COMPLETED) {
+        this.logger.info(`Transaction ${reference} déjà marquée comme complétée`);
+        return true;
+      }
+      
+      // Mettre à jour le statut de la transaction
+      await this.supabase
+        .from('payment_transactions')
+        .update({
+          status: status,
+          updated_at: new Date().toISOString(),
+          metadata: {
+            ...transaction.metadata,
+            webhookReceived: true,
+            webhookData: webhookData,
+            webhookTime: new Date().toISOString()
+          }
+        })
+        .eq('id', transaction.id);
+      
+      // Mettre à jour le statut de la commande
+      await this.orderService.updatePaymentStatus(orderId, status);
+      
+      this.logger.info(`Transaction ${reference} mise à jour avec succès via webhook`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Erreur lors du traitement du webhook ${provider}:`, error);
+      // Nous renvoyons true même en cas d'erreur car la plupart des systèmes de webhook
+      // réessaieront si nous renvoyons une erreur, ce qui pourrait causer des doublons
+      return false;
+    }
+  }
 }

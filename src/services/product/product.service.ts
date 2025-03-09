@@ -23,6 +23,7 @@ export interface Product {
   stock: number;
   metadata: Record<string, any>;
   imageUrl?: string; // For WhatsApp display
+  sellerId: string;  // Ajout nécessaire pour la vérification de propriété
 }
 
 export class ProductService {
@@ -429,15 +430,17 @@ export class ProductService {
   /**
    * Process a single product for WhatsApp display
    */
-  private processProductForDisplay(product: Product): Product {
-    // Add imageUrl if not already present
-    if (!product.imageUrl && product.images && product.images.length > 0) {
-      return {
-        ...product,
-        imageUrl: product.images[0]
-      };
-    }
-    return product;
+  private processProductForDisplay(product: any): Product {
+    // Convertir snake_case en camelCase et ajouter imageUrl
+    const processedProduct = {
+      ...product,
+      sellerId: product.seller_id, // Ajouter le champ sellerId
+      imageUrl: (!product.imageUrl && product.images && product.images.length > 0) 
+        ? product.images[0] 
+        : product.imageUrl
+    };
+    
+    return processedProduct;
   }
   
   /**
@@ -468,6 +471,177 @@ export class ProductService {
     } catch (error) {
       this.logger.warn(`Error recording product view: ${customerId} / ${productId}`, error);
       // Non-critical error, just log
+    }
+  }
+
+  /**
+   * Get products with pagination and filters (alias pour searchProducts)
+   */
+  async getProducts(options: {
+    category?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ products: Product[]; total: number; page: number; limit: number }> {
+    try {
+      const offset = (options.page && options.limit) ? (options.page - 1) * options.limit : 0;
+      
+      const products = await this.searchProducts({
+        category: options.category,
+        search: options.search,
+        limit: options.limit,
+        offset: offset
+      });
+      
+      // Récupérer le nombre total de produits pour la pagination
+      let countQuery = this.supabase
+        .from('products')
+        .select('id', { count: 'exact' });
+        
+      if (options.category) {
+        countQuery = countQuery.eq('category', options.category);
+      }
+      
+      if (options.search) {
+        if (this.hasVectorSearch()) {
+          countQuery = countQuery.textSearch('name_description_vector', options.search);
+        } else {
+          countQuery = countQuery.or(`name.ilike.%${options.search}%,description.ilike.%${options.search}%`);
+        }
+      }
+      
+      const { count, error } = await countQuery;
+      
+      if (error) throw error;
+      
+      return {
+        products,
+        total: count || products.length,
+        page: options.page || 1,
+        limit: options.limit || products.length
+      };
+    } catch (error) {
+      this.logger.error('Error getting products:', error);
+      return {
+        products: [],
+        total: 0,
+        page: options.page || 1,
+        limit: options.limit || 10
+      };
+    }
+  }
+
+  /**
+   * Get product by ID (alias pour getProduct)
+   */
+  async getProductById(productId: string): Promise<Product | null> {
+    return this.getProduct(productId);
+  }
+
+  /**
+   * Create a new product
+   */
+  async createProduct(data: {
+    name: string;
+    description: string;
+    price: number;
+    stock: number;
+    category: string;
+    images: string[];
+    sellerId: string;
+  }): Promise<Product | null> {
+    try {
+      const { data: product, error } = await this.supabase
+        .from('products')
+        .insert({
+          name: data.name,
+          description: data.description,
+          price: data.price,
+          stock: data.stock,
+          category: data.category,
+          images: data.images,
+          seller_id: data.sellerId,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          metadata: {
+            created_by: data.sellerId
+          }
+        })
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
+      return this.processProductForDisplay(product);
+    } catch (error) {
+      this.logger.error('Error creating product:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Update an existing product
+   */
+  async updateProduct(productId: string, updates: Partial<Product>): Promise<Product | null> {
+    try {
+      // Convertir le nom des propriétés de camelCase à snake_case pour Supabase
+      const dbUpdates: any = {};
+      
+      if (updates.name !== undefined) dbUpdates.name = updates.name;
+      if (updates.description !== undefined) dbUpdates.description = updates.description;
+      if (updates.price !== undefined) dbUpdates.price = updates.price;
+      if (updates.stock !== undefined) dbUpdates.stock = updates.stock;
+      if (updates.category !== undefined) dbUpdates.category = updates.category;
+      if (updates.images !== undefined) dbUpdates.images = updates.images;
+      if (updates.metadata !== undefined) dbUpdates.metadata = updates.metadata;
+      
+      // Toujours mettre à jour la date de modification
+      dbUpdates.updated_at = new Date().toISOString();
+      
+      const { data: product, error } = await this.supabase
+        .from('products')
+        .update(dbUpdates)
+        .eq('id', productId)
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
+      return this.processProductForDisplay(product);
+    } catch (error) {
+      this.logger.error(`Error updating product ${productId}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Delete a product
+   */
+  async deleteProduct(productId: string): Promise<boolean> {
+    try {
+      const { error } = await this.supabase
+        .from('products')
+        .delete()
+        .eq('id', productId);
+        
+      if (error) throw error;
+      
+      return true;
+    } catch (error) {
+      this.logger.error(`Error deleting product ${productId}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Vérifie si un produit appartient à un vendeur donné
+   */
+  async isProductOwnedBySeller(productId: string, sellerId: string): Promise<boolean> {
+    try {
+      const product = await this.getProductById(productId);
+      return product !== null && product.sellerId === sellerId;
+    } catch (error) {
+      return false;
     }
   }
 }

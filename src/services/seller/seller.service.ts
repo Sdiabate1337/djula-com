@@ -171,6 +171,136 @@ export class SellerService {
     }
   }
 
+  async getAllSellers(options: { 
+    page?: number, 
+    limit?: number, 
+    filters?: { 
+      city?: string, 
+      businessType?: string, 
+      isConnected?: boolean 
+    } 
+  } = {}): Promise<{ sellers: SellerProfile[], total: number }> {
+    try {
+      const { page = 1, limit = 10, filters = {} } = options;
+      const offset = (page - 1) * limit;
+      
+      // Construire la requête de base
+      let query = supabase
+        .from(this.SELLERS_TABLE)
+        .select('*', { count: 'exact' });
+      
+      // Appliquer les filtres
+      if (filters.city) {
+        query = query.eq('city', filters.city);
+      }
+      
+      if (filters.businessType) {
+        query = query.eq('business_type', filters.businessType.toLowerCase());
+      }
+      
+      if (filters.isConnected !== undefined) {
+        query = query.eq('is_whatsapp_connected', filters.isConnected);
+      }
+      
+      // Ajouter pagination
+      const { data, error, count } = await query
+        .range(offset, offset + limit - 1)
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Database error:', error);
+        throw new Error('Erreur lors de la récupération des vendeurs');
+      }
+      
+      return {
+        sellers: data.map(seller => this.mapSellerProfile(seller)),
+        total: count || 0
+      };
+    } catch (error) {
+      console.error('Error getting all sellers:', error);
+      throw error;
+    }
+  }
+
+  async getSellerById(id: string): Promise<SellerProfile | null> {
+    try {
+      const { data, error } = await supabase
+        .from(this.SELLERS_TABLE)
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error || !data) return null;
+      return this.mapSellerProfile(data);
+    } catch (error) {
+      console.error('Error getting seller by ID:', error);
+      return null;
+    }
+  }
+
+  async disconnectWhatsApp(sellerId: string): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from(this.SELLERS_TABLE)
+        .update({ is_whatsapp_connected: false })
+        .eq('id', sellerId);
+      
+      return !error;
+    } catch (error) {
+      console.error('Error disconnecting WhatsApp:', error);
+      return false;
+    }
+  }
+
+  async getSellerStats(sellerId: string): Promise<{
+    totalCustomers: number;
+    activeCustomers: number;
+    totalMessages: number;
+    averageResponseTime: number;
+  }> {
+    // Cette méthode serait implémentée avec de vraies requêtes vers vos tables de messages et clients
+    // Voici un exemple minimal qui devrait être adapté à votre structure de données
+    try {
+      // Exemple : nombre total de clients
+      const { count: totalCustomers } = await supabase
+        .from('customers')
+        .select('*', { count: 'exact' })
+        .eq('seller_id', sellerId);
+      
+      // Exemple : clients actifs dans les 30 derniers jours
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      const { count: activeCustomers } = await supabase
+        .from('customers')
+        .select('*', { count: 'exact' })
+        .eq('seller_id', sellerId)
+        .gte('last_activity', thirtyDaysAgo.toISOString());
+      
+      // Exemple : nombre total de messages
+      const { count: totalMessages } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact' })
+        .eq('seller_id', sellerId);
+      
+      // Statistiques fictives pour l'exemple
+      return {
+        totalCustomers: totalCustomers || 0,
+        activeCustomers: activeCustomers || 0,
+        totalMessages: totalMessages || 0,
+        averageResponseTime: 5.2 // minutes
+      };
+    } catch (error) {
+      console.error('Error getting seller stats:', error);
+      return {
+        totalCustomers: 0,
+        activeCustomers: 0,
+        totalMessages: 0,
+        averageResponseTime: 0
+      };
+    }
+  }
+
   public mapSellerProfile(dbData: any): SellerProfile {
     return {
       id: dbData.id,

@@ -25,6 +25,7 @@ export interface ShippingAddress {
 export interface Order {
   id: string;
   customerId: string;
+  sellerId: string; // Ajout de cette propriété
   items: OrderItem[];
   status: OrderStatus;
   totalAmount: number;
@@ -92,6 +93,7 @@ export class OrderService {
    */
   async createOrder(customerId: string, data: {
     customerId: string;
+    sellerId: string; // Ajout de cette ligne
     items: Array<{ productId: string; quantity: number; }>;
     shippingAddress?: ShippingAddress;
     paymentMethod?: string;
@@ -127,6 +129,7 @@ export class OrderService {
       // Prepare order data
       const orderData = {
         customer_id: customerId,
+        seller_id: data.sellerId, // Ajoutez cette ligne
         items: orderItems,
         status: OrderStatus.DRAFT, // Start as draft until confirmation
         total_amount: validation.total,
@@ -735,6 +738,7 @@ export class OrderService {
     return {
       id: data.id,
       customerId: data.customer_id,
+      sellerId: data.seller_id, // Ajout de cette ligne
       items: data.items,
       status: data.status,
       totalAmount: data.total_amount,
@@ -933,6 +937,74 @@ export class OrderService {
       return {
         valid: false,
         message: "Une erreur est survenue lors du traitement du paiement"
+      };
+    }
+  }
+
+  /**
+   * Alias pour getCustomerOrders pour compatibilité avec les routes existantes
+   */
+  async getOrdersByUserId(userId: string): Promise<Order[]> {
+    return this.getCustomerOrders(userId);
+  }
+
+  /**
+   * Alias pour getOrder pour compatibilité avec les routes existantes
+   */
+  async getOrderById(orderId: string): Promise<Order | null> {
+    return this.getOrder(orderId);
+  }
+
+  /**
+   * Get orders for a seller
+   * This is semantically different from getOrdersByUserId which gets orders placed BY a user
+   * while this method gets orders managed BY a seller
+   */
+  async getOrdersBySellerId(sellerId: string, options: {
+    status?: OrderStatus;
+    page?: number;
+    limit?: number;
+  } = {}): Promise<{
+    orders: Order[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    try {
+      const { page = 1, limit = 20, status } = options;
+      const offset = (page - 1) * limit;
+      
+      // Construire la requête de base
+      let query = this.supabase
+        .from('orders')
+        .select('*', { count: 'exact' })
+        .eq('seller_id', sellerId);
+      
+      // Filtrer par statut si fourni
+      if (status) {
+        query = query.eq('status', status);
+      }
+      
+      // Appliquer pagination
+      const { data, error, count } = await query
+        .range(offset, offset + limit - 1)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      return {
+        orders: data ? data.map(this.mapOrderFromDB) : [],
+        total: count || 0,
+        page,
+        limit
+      };
+    } catch (error) {
+      this.logger.error(`Erreur lors de la récupération des commandes pour le vendeur ${sellerId}:`, error);
+      return {
+        orders: [],
+        total: 0,
+        page: options.page || 1,
+        limit: options.limit || 20
       };
     }
   }

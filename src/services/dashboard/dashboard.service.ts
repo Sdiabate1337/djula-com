@@ -1,4 +1,4 @@
-import { supabase } from '../../supabase/supabase.client';
+import { supabase } from '../supabase/supabase.client';
 import { SellerService } from '../seller/seller.service';
 import { OrderService } from '../order/order.service';
 import { ProductService } from '../product/product.service';

@@ -408,11 +408,28 @@ export class OpenAIService {
 
         case 'ORDER_PLACEMENT':
           // Handle order placement
+          const productId = intent.parameters.productId;
+          let sellerId = intent.parameters.sellerId;
+          
+          // Si le sellerId n'est pas fourni directement dans l'intention,
+          // essayons de le récupérer à partir du produit
+          if (!sellerId && productId) {
+            const product = await this.productService.getProduct(productId);
+            sellerId = product?.sellerId;
+          }
+          
+          // Si toujours pas de sellerId, utiliser un ID de vendeur par défaut pour l'e-commerce
+          if (!sellerId) {
+            sellerId = process.env.DEFAULT_SELLER_ID || 'default_seller';
+            this.logger.warn(`Aucun sellerId fourni pour la commande, utilisation de l'ID par défaut: ${sellerId}`);
+          }
+          
           const orderData = {
             customerId,
+            sellerId, // Ajout du sellerId
             items: intent.parameters.items || [
               {
-                productId: intent.parameters.productId,
+                productId: productId,
                 quantity: intent.parameters.quantity || 1
               }
             ],
@@ -447,7 +464,14 @@ export class OpenAIService {
             if (selectedMethod) {
               const orderId = intent.parameters.orderId || state?.activeOrder?.id;
               if (orderId) {
-                const payment = await this.paymentService.initiatePayment(orderId, selectedMethod);
+                // Utilisation de la méthode initializePayment qui est compatible avec les routes
+                // au lieu de initiatePayment qui attend une structure différente
+                const payment = await this.paymentService.initializePayment({
+                  orderId,
+                  customerId,
+                  paymentMethodId: selectedMethod.id
+                });
+                
                 actions.push({ 
                   type: 'PROCESS_PAYMENT', 
                   payload: { 
@@ -486,7 +510,9 @@ export class OpenAIService {
 
         case 'UNKNOWN':
           // For unknown intent, provide general help options
-          const recommendedProducts = this.productService.getRecommendedProducts(customerId, 3);
+          // Problème : recommendedProducts est une Promise, pas un tableau
+          // Corrigeons avec await
+          const recommendedProducts = await this.productService.getRecommendedProducts(customerId, 3);
           
           actions.push({ 
             type: 'UNKNOWN_INTENT', 
@@ -494,8 +520,8 @@ export class OpenAIService {
               suggestedActions: ['browse_catalog', 'check_orders', 'contact_support']
             } 
           });
-        
-          // Add recommendations to help the user
+
+          // Maintenant nous pouvons vérifier la longueur car recommendedProducts est bien un tableau
           if (recommendedProducts && recommendedProducts.length > 0) {
             actions.push({ type: 'SHOW_RECOMMENDATIONS', payload: recommendedProducts });
           }
